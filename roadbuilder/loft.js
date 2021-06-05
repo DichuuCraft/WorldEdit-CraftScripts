@@ -332,8 +332,8 @@ var road_type = {
 };
 
 var config = {
-    max_distance: 500,
-    max_width: 100,
+    max_distance: 1000,
+    max_width: 120,
 };
 
 var blocks = context.remember();
@@ -739,6 +739,7 @@ var compute_roadmap = function (lines, max_width, seg_num, symetry) {
 }
 var parse_and_set_block_patern = function (pos, str, l_index, line, symetry, map_blc) {
     var norm1 = false;
+    if (segnorm1) norm1 = true;
     if (symetry === false) {
         var sliceR = str.split("{r}").pop().split("{l}")[0];
         var sliceL = str.split("{l}").pop().split("{r}")[0];
@@ -786,15 +787,14 @@ var parse_and_set_block_patern = function (pos, str, l_index, line, symetry, map
 
 //填充方块
 var build_road = function (line, roadmap, roadtype, symetry) {
+    var loftStart = (loftRange && loftRange[2] != "") ? (loftRange[2] - 1) || 0 : 0;
+    var loftEnd = (loftRange && loftRange[3] != "") ? (loftRange[3] - 1) || (line.length - 1) : (line.length - 1);
     for (var index in roadmap) {
         var map_blc = roadmap[index];
         var distance = map_blc.distance;
         var l_index = map_blc.closest;
         var pos = map_blc.pos;
         var roadY = line[l_index].pos.getY();
-
-        var loftStart = (loftRange && loftRange[2] != "") ? (loftRange[2] - 1) || 0 : 0;
-        var loftEnd = (loftRange && loftRange[3] != "") ? (loftRange[3] - 1) || (line.length - 1) : (line.length - 1);
         roadtype.base_material.forEach(function (layer) {
             if (layer[Math.floor(distance) + 1] && l_index > loftStart && l_index < loftEnd) {
                 parse_and_set_block_patern(
@@ -844,7 +844,7 @@ var build_road = function (line, roadmap, roadtype, symetry) {
                     roadmap[(pos[0] + 1) + "," + (pos[1] + 1)] && roadmap[(pos[0] + 1) + "," + (pos[1] + 1)][sflag] ? roadmap[(pos[0] + 1) + "," + (pos[1] + 1)].distance : Infinity,
                     roadmap[(pos[0] - 1) + "," + (pos[1] - 1)] && roadmap[(pos[0] - 1) + "," + (pos[1] - 1)][sflag] ? roadmap[(pos[0] - 1) + "," + (pos[1] - 1)].distance : Infinity
                 ];
-                if (p[0] > neighbors[0] || p[0] > neighbors[1] || p[0] > neighbors[2] || p[0] > neighbors[3] || p[0] > neighbors[4] || p[0] > neighbors[5] || p[0] > neighbors[6] || p[0] > neighbors[7]) {
+                if ((distance == 0 && p[0] == 0) || p[0] > neighbors[0] || p[0] > neighbors[1] || p[0] > neighbors[2] || p[0] > neighbors[3] || p[0] > neighbors[4] || p[0] > neighbors[5] || p[0] > neighbors[6] || p[0] > neighbors[7]) {
                     parse_and_set_block_patern(
                         BlockVector3.at(pos[0], roadY + p[1], pos[1]),
                         p[3],
@@ -914,8 +914,9 @@ var segnorm1 = (argv[2] == "-n1" || argv[3] == "-n1" || argv[4] == "-n1" || argv
 var loftRange = /^(d?)([0-9]*)\:([0-9]*)$/.exec(argv[2]);
 if (!loftRange) loftRange = /^(d?)([0-9]*)\:([0-9]*)$/.exec(argv[3]);
 if (!loftRange) loftRange = /^(d?)([0-9]*)\:([0-9]*)$/.exec(argv[4]);
+if (!loftRange) loftRange = /^(d?)([0-9]*)\:([0-9]*)$/.exec(argv[5]);
 if (loftRange) player.print(loftRange);
-player.print(symetry)
+// player.print(symetry)
 if (argv[1] == "sel" || argv[1] == "s") {
     var region = session.getRegionSelector(player.getWorld()).getRegion();
     road_type = loadConfigFromRegion(region, null, symetry);
@@ -950,6 +951,12 @@ if (!road_type) {
         road_type.points = [];
     }
     var max_width = 0;
+    if (road_type.seg_num[0] == "=") {
+        road_type.seg_norm1 = true;
+        road_type.seg_num = road_type.seg_num.slice(1);
+    } else {
+        road_type.seg_norm1 = segnorm1;
+    }
     road_type.base_material.forEach(function (e) {
         max_width = Math.max(max_width, e.length - 2);
     });
@@ -957,11 +964,11 @@ if (!road_type) {
         max_width = Math.max(max_width, e[0]);
     });
     road_type.segments.forEach(function (e) {
-        e[2] = Math.abs(e[2]);
+        e[2] = Math.abs(e[2]) % road_type.seg_num;
         max_width = Math.max(max_width, e[0]);
     });
     road_type.points.forEach(function (e) {
-        e[2] = Math.abs(e[2]);
+        e[2] = Math.abs(e[2]) % road_type.seg_num;
         max_width = Math.max(max_width, e[0]);
     });
     road_type.contours = road_type.contours.filter(function (e) {
@@ -973,17 +980,12 @@ if (!road_type) {
     road_type.points = road_type.points.filter(function (e) {
         return e[3] != "void";
     });
-    if (road_type.seg_num[0] == "=") {
-        road_type.seg_norm1 = true;
-        road_type.seg_num = road_type.seg_num.slice(1);
-    }else{
-        road_type.seg_norm1 = segnorm1;
-    }
+
     road_type.seg_num = Number(road_type.seg_num);
     var start = player.getBlockOn().toVector().toBlockPoint();
     if (loftRange && loftRange[1] == "d") start = start.add(BlockVector3(0, -1, 0));
     var central_line = search_line(start);
-    player.printError("路径总长"+central_line.length+"个方块");
+    player.print("路径总长" + central_line.length + "个方块");
     if (central_line) {
         var roadmap = compute_roadmap(central_line, max_width, road_type.seg_num, symetry);
         build_road(central_line, roadmap, road_type, symetry);
@@ -992,4 +994,4 @@ if (!road_type) {
         fix();
     }
 }
-player.print(roadtype.points.join("\n"));
+player.print(road_type.points.join("\n"));
